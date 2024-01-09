@@ -1,5 +1,5 @@
 #######################################
-#####     Updated Low Flow    #####
+#####     Updated Low Flow        #####
 #####         7-day mo avg        #####
 #######################################
 
@@ -12,40 +12,42 @@
 
 cat("\014") ;  rm(list=ls())
 
-library(dataRetrieval); library(FlowScreen); 
+library(dataRetrieval); library(FlowScreen); library(tidyverse)
 library(dplyr); library(lubridate); library(tidyr); library(ggplot2);library(tools)
 library(spatial); library(rgeos); library(raster); library(data.table)
-library(RColorBrewer); library(rgdal); library(lfstat)
+library(RColorBrewer); library(rgdal); library(lfstat); library(plyr)
 
-#State Shapefile for plots
-pathfm = "C:/Work/Data/Shapefiles/California State"
-usa <- readOGR(pathfm, layer="CA_State_TIGER2016")
-usa <- spTransform(usa,CRS("+init=epsg:4326"))
-ca = fortify(usa)
+files <- list.files("C:\\Work\\Data\\USGS gages\\California Discharge\\Daily_Qavg_until_12_2023\\")
+sites2 <- unique(ldply(files,function(x) strsplit(x,"_")[[1]][1])$V1)
 
 # Read in data for reference years
-all.eff <- read.csv("C:/Work/Data/Functional Flows/EFF_All_Class_original_metrics.csv",header=T); head(all.eff)
+all.eff <- read.csv("C:/Work/Data/Functional Flows/CA_Reference_Screen_December_2023_WRR_20years.csv",header=T); head(all.eff)
+ffref <- unique(all.eff$ID)
 
-# Get functional flows reference sites
-tmet <- read.csv("C:\\Work\\Data\\Functional Flows\\Met files\\met_dryseason_point1_5day_15percentofyears.csv",header=T)
-tmet = tmet[which(tmet$Stat == "Streamclass_annual"),]
-sites= unique(tmet$ID)
 
-altered <- read.csv("C:\\Work\\Data\\USGS gages\\California Discharge\\CA_altered.csv",header = T)
-sites = unique(altered$ID)
+altered <- read.csv("C:\\Work\\Data\\USGS gages\\California Discharge\\CA_altered_1980_25years_2.csv",header = T)
+altered <- altered[which(altered$Max_1980 >= 2020),]
+altered <- altered[which(altered$Npost_1980 > 40),]
+alsites = unique(altered$ID)
+curnet <- alsites[which(alsites %in% sites2)]
+
+current <- altered[which(altered$Ref_status == "Ref"),]$ID
+
+sites2 = c(ffref,curnet)
+sites2 = ffref
 
 # list to store data
 seven.list <- list()
 
-for(s in 1:length(sites)){
+for(s in 1:length(sites2)){
   
   #s=20
-  site = sites[s]
+  site = sites2[s]
   print(site)
   
   
-  sf <- read.csv(paste0("C:\\Work\\Data\\USGS gages\\California Discharge\\Daily_Qavg_until_082021\\USGS_QAverage_",site,"_Discharge.csv"), header=T)
-  sf <- sf[,c(3,4)]
+  sf <- read.csv(paste0("C:\\Work\\Data\\USGS gages\\California Discharge\\Daily_Qavg_until_12_2023\\",as.numeric(site),"_Discharge_12_2023.csv"), header=T)
+  sf = sf[,1:2]
   
   #calculate stats for the Zero-Flow days for each year and EFF period
   library(lfstat)
@@ -55,13 +57,6 @@ for(s in 1:length(sites)){
   sf$Wyear <- water_year(as.Date(sf$Date), origin=10)
   
   colnames(sf) <- c("Date","Discharge","MD","year","Wyear")
-  
-  # Flow duration curve thresholds
-  qsf <- na.omit(sf)
-  qts <- quantile(qsf$Discharge, c(0.02,0.06,0.10,0.14,0.18)) #sets percentiles 
-
-  quants <- data.frame(names(qts),qts)
-  colnames(quants) <- c("Threshold","Value")
   
   #Check for consecutive dates
   min <- min(sf$year);  max <- max(sf$year)
@@ -87,13 +82,7 @@ for(s in 1:length(sites)){
   all.sev$year <- as.numeric(substr(all.sev$Date,1,4))
   all.sev$MD <- substr(all.sev$Date,6,10)
   all.sev$Wyear <- water_year(as.Date(all.sev$Date), origin=10)
-  
-  #write.csv(all.sev, paste0("C:\\Work\\Data\\Daily 7 day mo avg\\",site,"_SevenMoAvg.csv"),row.names=F)
-  
-  qts7 <- quantile(all.sev$roll7Mean, c(0.02,0.06,0.10,0.14,0.18))
-  quants7 <- data.frame(names(qts7),qts7)
-  colnames(quants7) <- c("Threshold","Value")
-  
+
   
   # Data frame to store site's annual low flow metrics
   intermets <- data.frame(matrix(NA,nrow=length(wateryears),ncol=24))
@@ -117,9 +106,9 @@ for(s in 1:length(sites)){
       nextyear <- nextyear[order(as.Date(nextyear$Date, format="%Y-%m-%d")),]
       nextyear$Day <- seq_len(nrow(nextyear))+nrow(daily)
       
-      #June 1 to Jan 1 for dry season timing 
+      #April 1 to Jan 1 for dry season timing 
       #Dry Season -- Calculates number of No Flow days during the dry season
-      dry.tim <- as.Date(paste0("",year,"-06-01"),format="%Y-%m-%d")
+      dry.tim <- as.Date(paste0("",year,"-04-01"),format="%Y-%m-%d")
       dry.end <- as.Date(paste0("",year,"-12-31"),format="%Y-%m-%d")
       
       # get entire ds (into next water year too)
@@ -137,14 +126,8 @@ for(s in 1:length(sites)){
                                     "Dry season"="red"),name="")+
         theme_light()
       t <- t + theme(legend.position = c(0.8,0.88))
-      print(t)
+      #print(t)
       
-      # for some reason, not triggered when is the same value
-      thres <- sapply(quants$Value,function(x){ nrow(dry[which(dry$Discharge <= as.numeric(x)),])})
-      thres.days <- sapply(quants$Value,function(x){dry[which(dry$Discharge <= as.numeric(x)),]$Day[1]})
-      
-      thres7 <- sapply(quants7$Value,function(x){ nrow(dry[which(dry$roll7Mean <= as.numeric(x)),])})
-      thres.days7 <- sapply(quants$Value,function(x){dry[which(dry$Discharge <= as.numeric(x)),]$Day[1]})
       
       library(dplyr)
       #Calculate sev day min, duration and start date
@@ -194,21 +177,7 @@ for(s in 1:length(sites)){
       intermets[y,6] <- paste0(SevDay)
       
       # get threshold (discharge) and number of days below threshold (count of days)
-      intermets[y,7] <- thres[1]
-      intermets[y,8] <- thres[2]
-      intermets[y,9] <- thres[3]
-      intermets[y,10] <- thres[4]
-      intermets[y,11] <- quants[1,2]
-      intermets[y,12] <- quants[2,2]
-      intermets[y,13] <- quants[3,2]
-      intermets[y,14] <- quants[4,2]
-      intermets[y,15] <- thres7[2]
-      intermets[y,16] <- thres7[3]
-      intermets[y,17] <- thres7[4]
-      intermets[y,18] <- quants7[1,2]
-      intermets[y,19] <- quants7[2,2]
-      intermets[y,20] <- quants7[3,2]
-      intermets[y,21] <- quants7[4,2]
+    
       
     }
     else{next}
@@ -217,34 +186,45 @@ for(s in 1:length(sites)){
   
   
   colnames(intermets) <- c("Year","Zero_Flow_Days","Zero_Flow_Start_Date_WY",
-                           "Min_7_Day_Mov_Avg","Zero_date_check", "Min_7_Start_Date_WY",
-                           "98%_Days","94%_Days","90%_Days","86%_Days",
-                           "98%_Days7","94%_Days7","90%_Days7","86%_Days7")
+                           "Min_7_Day_Mov_Avg","Zero_date_check", "Min_7_Start_Date_WY")
 
   write.csv(intermets,paste0("C:\\Work\\Data\\Altered Low Flow Metrics Dry Season Consecutive\\",site,"_Annual_low_flow.csv"),row.names = F)
-    
+  rm(sf,intermets,nextyear,dry,dry1,dry2,daily,t,x,threshold.list,all.sev, max,min, missing, s, SevDay, SevDmin, Sevdur,SevStart, first, fzeros, fzeros1,last,site,y,year,wateryears,dry.end,dry.tim,duration,actyears,zdf,zeros)
 }
 
 
 
 
 # Calculate SF Class
+# need to do separately for reference and non-reference periods
+sites = sites2
+ref.list <- list()
 
 #data frame to save values
 zavs <- data.frame(matrix(data=NA, nrow=length(sites),ncol=7))
 
 for(s in 1:length(sites)){
   
-  # site=10259000
+  # site =11180960
+  #s=1
   site = sites[s]
   temp1=read.csv(paste0("C:\\Work\\Data\\Altered Low Flow Metrics Dry Season Consecutive\\",site,"_Annual_low_flow.csv"),header=T)
   temp1$site = paste0(site)
   
   #get ref years
-  #keyvars <- unique(tmet[which(tmet$ID == site),]$Year)
-  #temp1 = temp1[which(temp1$Year %in% keyvars),]
+  ref.info = all.eff[which(all.eff$ID == site),]
   
+  maxyear = ref.info$Max_year
+  minyear = ref.info$Min_year
   
+  # if reference gage is in the modern, altered anlaysis
+  if(site %in% current){maxyear = 1980}
+  temp1 = temp1[which(temp1$Year >= minyear),]
+  temp1 = temp1[which(temp1$Year <= maxyear),]
+  
+  temp1 = temp1[,c(1:6,25)]
+  
+  if(nrow(temp1)>19){
   # Reference period means 
   amean <- mean(temp1$Zero_Flow_Days)
   amedian <- median(temp1$Zero_Flow_Days)
@@ -266,9 +246,33 @@ for(s in 1:length(sites)){
   zavs[s,5] <- percent5
   zavs[s,6] <- nyears
   zavs[s,7] <- occur5
+  zavs[s,8] <- ref.info$COMID
   
   
+  # list to show when years of reference occur for analysis 
+  
+  ref.list[[s]] <- temp1
+  
+  }
   rm(occur,occur5,percent5,percent,amean,amedian,temp1,site,s)
 }
 
-colnames(zavs) <- c("site_no","Mean_Zero","Median_Zero","Percent","Percent5","N_years","N_zero_flow_years")
+zavs=zavs[!is.na(zavs$X1),]
+colnames(zavs) <- c("site_no","Mean_Zero","Median_Zero","Percent","Percent5","N_years","N_zero_flow_years","COMID")
+zavs$Overall_Class <- ifelse(zavs$Percent5 > 0.15, "Non-perennial","Perennial")
+
+all.ref <- data.frame(rbindlist(ref.list))
+
+counts <- all.ref %>%
+  group_by(Year) %>%
+  dplyr::summarise(count=n())
+
+analysisplot <- ggplot(data = all.ref, aes(x = Year)) +
+  ylab("No. of sites")+
+  geom_histogram(bins=length(unique(all.ref$Year)),fill="#31a354",color="darkgreen")+
+  theme_light()
+
+ggsave("All_reference_years_altered_removed.png", plot=analysisplot, device="png", path = "C:\\Work\\CEFF Metrics and Models\\Figures\\",
+       width = 5, height = 5, dpi=300, limitsize=TRUE)
+
+nonp <- zavs[which(zavs$Overall_Class == "Non-perennial"),]
