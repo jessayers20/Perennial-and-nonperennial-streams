@@ -4,12 +4,7 @@
 ###############################################
 
 
-# Extract all PRISM/watershed data from original files (updated through 2022 dry season (i.e., begining of WY23 (December)))
-# Format, merge and add streamflow metrics for file that goes into RF model
-
-#** updating years from The Nature Conservancy (TNC) PRISM files, 
-
-
+# Extract all PRISM/watershed data from original files (updated Steptember 2023 from dataset)
 cat("\014") ;  rm(list=ls())
 
 library(dataRetrieval); library(nhdplusTools); 
@@ -18,7 +13,7 @@ library(spatial); library(rgeos); library(raster); library(rgdal)
 library(sp); library(tidyverse); library(data.table)
 
 ###########################################################################
-# 1. format PRISM files from TNC -----------------------------------------
+# 1st format PRISM files from TNC -----------------------------------------
 ###########################################################################
 
 # Take from TNC format PRISM to proper format from above 
@@ -26,12 +21,11 @@ library(sp); library(tidyverse); library(data.table)
 library(data.table)
 setwd("C:\\Work\\Data\\COMID met files 2014-2023")
 upfi <- list.files("C:/Work/Data/COMID met files 2014-2023")
-
 #files <- rbindlist(lapply(upfi, function(x){read.csv(x, header=T)}))
 
 FUN2 <- function(number){ # fun to unlist and format datasets
   
-  #number=1012
+  #number=1719
   var  = unlist(strsplit(upfi[number],"_"))[3]  #within original temp, extracts into characters separated by / and extracts in the fourth position the characters in the position of 1 to 7
   year = as.integer(unlist(strsplit(upfi[number],"_"))[4])
   month = as.integer(substr(unlist(strsplit(upfi[number],"_"))[5],1,2))
@@ -69,64 +63,86 @@ library(data.table); library(tidyr)
 setwd("C:\\Work\\Data\\Processed COMID met files 2014-2023")
 file_list <- list.files("C:/Work/Data/Processed COMID met files 2014-2023")
 
+#myMergedData <-   do.call(rbind, lapply( file_list, read.csv))
+#test<-spread(myMergedData,key="Var",value="Value")
+#write.csv(test,"C:\\Work\\Data\\Functional Flows\\Climate_mets_2006_2023.csv",row.names=F)
+
 
 ##############################################################################
 # 2nd step to get for assigned COMID -----------------------------------------
 ##############################################################################
 
 
-library(dataRetrieval); library(nhdplusTools); 
-library(dplyr); library(lubridate); library(tidyr); library(ggplot2);library(tools)
-library(spatial); library(rgeos); library(raster); library(rgdal)
-library(sp); library(tidyverse); library(data.table)
 
 # original fun flows met file
 met1 <- list.files("D:\\CA_NHDPreds\\", pattern="*.csv")
 
 library(stringr)
 comids <- str_extract(met1, '.*(?=\\.csv)')
+#comids <- comids[32:142509]
 
 # Read in updated met file
-upmet <- read.csv("C:\\Work\\Data\\Functional Flows\\Climate_mets_2005_2023.csv",header=T)
-upmet <- rename(upmet, "WaYr"="Year")
+upmet <- read.csv("C:\\Work\\Data\\Functional Flows\\Climate_mets_2006_2023.csv",header=T)
+#upmet <- rename(upmet, "WaYr" == "Year")
 
 # get all comids
-#altered <- read.csv("C:\\Work\\Data\\USGS gages\\California Discharge\\CA_altered.csv",header = T)
-#sites = unique(altered$ID)
-#sites = sites[-c("11297200")]
+# Data for altered analaysis
+altered <- read.csv("C:\\Work\\Data\\USGS gages\\California Discharge\\CA_altered_1980_25years_2.csv",header = T)
+altered <- altered[which(altered$Max_1980 >= 2020),]
+altered <- altered[which(altered$Npost_1980 > 40),]
+alsites = unique(altered$ID)
 
-refs <- read.csv("C:\\Work\\Data\\Functional Flows\\Met files\\met_dryseason_point1_5condays_15percentofyears_reference.csv",header=T)
-refs = refs[which(refs$Stat == "Streamclass_annual"),]
-sites=unique(refs$ID)
+length(altered[which(altered$Ref_status == "Ref"),]$ID)
 
+# need comids for non-reference sites
+nonrefs <- read.csv("C:\\Work\\Data\\Functional Flows\\Met files\\Met_altered_analysis_12_2023.csv",header=T)
+nonrefs = nonrefs[which(nonrefs$Stat == "Streamclass_annual"),]
+nref=unique(nonrefs$ID)
+nrefs = unique(nonrefs[,c("COMID","ID")])
 
-for(s in 1:length(sites)){
+# Read in data for reference years
+all.eff <- read.csv("C:/Work/Data/Functional Flows/CA_USGS_Gage_Reference_Screen_December_2023_WRR.csv",header=T); head(all.eff)
+ffref <- unique(all.eff$ID)
+
+comids <- unique(c(all.eff$NHDV1_COMID,all.eff$NHDV2_COMID))
+
+done <- tools::file_path_sans_ext(list.files("D:\\CA_NHDPreds_1950_2023"))
+sites = unique(nrefs$ID)
+
+for(s in 1:length(ffref)){
   
-  # s = 1
-  site = sites[s]
-  ainfo <- refs[which(refs$ID == site),]
-  comid <- unique(ainfo$COMID)
+  # s = 2
+  site = ffref[s]
+  ainfo <- all.eff[which(all.eff$ID == site),]
+  #comid <- ainfo$COMID[[1]]
   
   temp1 = read.csv(paste0("C:\\Work\\Data\\Altered Low Flow Metrics Dry Season Consecutive\\",site,"_Annual_low_flow.csv"),header=T) 
   
+  
   # get comid for nonref
-  #comid <- allbasins[which(allbasins$ID == site),]$NHDV1_COMID
+  comid <- ainfo$NHDV1_COMID
   
   # get comid for ref
   #comid <- refstations[which(refstations$ID == site),]$NHDV1_COMID
   
   # file with NHD values (climate, watershed characteristics)
+
+  file <- paste0("D:\\CA_NHDPreds\\",comid,".csv")
+    if(file.exists(file)){
   met <- read.csv(paste0("D:\\CA_NHDPreds\\",comid,".csv"))
-  
-  
-  #if first comid is empty, use second comid val
- # if(nrow(met)==0){
-    #comid <-  allbasins[which(allbasins$ID == site),]$NHDV2_COMID
-    #comid <- refstations[which(refstations$ID == site),]$NHDV2_COMID
-    next
-  #}
-  
-  
+    } else{
+      # get comid for ref
+      comid <-ainfo$NHDV2_COMID
+      file <- paste0("D:\\CA_NHDPreds\\",comid,".csv")
+      if(file.exists(file)){
+        met <- read.csv(paste0("D:\\CA_NHDPreds\\",comid,".csv"))
+        
+      }
+      }
+
+  if(file.exists(file)){
+  met <- read.csv(paste0("D:\\CA_NHDPreds\\",comid,".csv"))
+    
   # Read in data for Climate/Watershed characteristics
   # obtain next water years to account for dry season flow
   # set order and columns the same for both datasets for binding and calculating the seasonal/annual metrics
@@ -151,10 +167,10 @@ for(s in 1:length(sites)){
                 
   )]
   
-  # updated from 2005
+  tmet$Year <- tmet$WaYr  
   umet <- upmet[which(upmet$COMID == comid),]
   
-  umet <- umet[,c("COMID",  "WaYr" , 
+  umet <- umet[,c("COMID",  "Year" , 
                   "ppt_Jan.wy", "ppt_Feb.wy",
                   "ppt_Mar.wy", "ppt_Apr.wy", "ppt_May.wy", "ppt_Jun.wy",
                   "ppt_Jul.wy", "ppt_Aug.wy", "ppt_Sep.wy", "ppt_Oct.wy",
@@ -164,52 +180,29 @@ for(s in 1:length(sites)){
                   "tav_Nov.wy" ,"tav_Dec.wy", "run_Jan.wy" , "run_Feb.wy",
                   "run_Mar.wy",  "run_Apr.wy" ,   "run_May.wy" , "run_Jun.wy" ,
                   "run_Jul.wy",  "run_Aug.wy" , "run_Sep.wy",  "run_Oct.wy",  "run_Nov.wy",  "run_Dec.wy")]
+  #umet$Year = umet$Year+1
   
-  umet <- umet[which(umet$WaYr >= 2005),] #remove years with nas
+ 
   
-  
-  # Need to get previous years climate vars to calculate annual totals
-  prevmet <- umet[which(umet$WaYr >= 2005),]
-  
-  # Need to subset water years
-  prevmet$WaYr <- (prevmet$WaYr + 1) # minus one to get the correct previous year
-  
-  # set col names to previous wy
-  colnames(prevmet) <- c("COMID","WaYr", "ppt_Jan.pwy", "ppt_Feb.pwy", "ppt_Mar.pwy", "ppt_Apr.pwy", "ppt_May.pwy", "ppt_Jun.pwy", "ppt_Jul.pwy", "ppt_Aug.pwy", "ppt_Sep.pwy", "ppt_Oct.pwy", "ppt_Nov.pwy", "ppt_Dec.pwy",
-                         "tav_Jan.pwy", "tav_Feb.pwy", "tav_Mar.pwy", "tav_Apr.pwy", "tav_May.pwy", "tav_Jun.pwy", "tav_Jul.pwy", "tav_Aug.pwy", "tav_Sep.pwy","tav_Nov.pwy", "tav_Dec.pwy", 
-                         
-                         "run_Jan.pwy", "run_Feb.pwy", "run_Mar.pwy", "run_Apr.pwy", "run_May.pwy", "run_Jun.pwy", "run_Jul.pwy", "run_Aug.pwy", "run_Sep.pwy","run_Oct.pwy", "run_Nov.pwy", "run_Dec.pwy"
-  )
-  
-  testmet <- merge(umet,prevmet,by=c("WaYr","COMID"))
-  
-  
-  testmet <- testmet[,c("COMID",  "WaYr" , "ppt_Jan.wy", "ppt_Feb.wy",
-                        "ppt_Mar.wy", "ppt_Apr.wy", "ppt_May.wy", "ppt_Jun.wy",
-                        "ppt_Jul.wy", "ppt_Aug.wy", "ppt_Sep.wy", "ppt_Oct.wy",
-                        "ppt_Nov.wy", "ppt_Dec.wy" ,
-                        "ppt_Jan.pwy", "ppt_Feb.pwy", "ppt_Mar.pwy", "ppt_Apr.pwy", "ppt_May.pwy", "ppt_Jun.pwy", "ppt_Jul.pwy", "ppt_Aug.pwy", "ppt_Sep.pwy",
-                        "tav_Jan.wy" ,"tav_Feb.wy",
-                        "tav_Mar.wy" ,"tav_Apr.wy", "tav_May.wy", "tav_Jun.wy",
-                        "tav_Jul.wy", "tav_Aug.wy", "tav_Sep.wy", "tav_Oct.wy",
-                        "tav_Nov.wy" ,"tav_Dec.wy", 
-                        "tav_Jan.pwy", "tav_Feb.pwy", "tav_Mar.pwy", "tav_Apr.pwy", "tav_May.pwy", "tav_Jun.pwy", "tav_Jul.pwy", "tav_Aug.pwy", "tav_Sep.pwy",
-                        "run_Jan.wy" , "run_Feb.wy",
-                        "run_Mar.wy",  "run_Apr.wy" ,"run_May.wy" , "run_Jun.wy" ,
-                        "run_Jul.wy",  "run_Aug.wy" , "run_Sep.wy",  "run_Oct.wy",  "run_Nov.wy",  "run_Dec.wy",
-                        "run_Jan.pwy", "run_Feb.pwy", "run_Mar.pwy", "run_Apr.pwy", "run_May.pwy", "run_Jun.pwy", "run_Jul.pwy", "run_Aug.pwy", "run_Sep.pwy"
-                        
-  )]
-  
-  #testmet <- rename(testmet, WaYr = Year)
+  umet <- umet[which(umet$Year >= 2015),] #remove years with nas
   
   # use new file for metrics post 2006, updated weather stations with PRISM
-  tmet = tmet[which(tmet$WaYr<2015),]
-  testmet = testmet[which(testmet$WaYr >= 2015),]
+  tmet = tmet[which(tmet$Year<2015),]
+  tmet <- tmet[,c("COMID",  "Year" , 
+                  "ppt_Jan.wy", "ppt_Feb.wy",
+                  "ppt_Mar.wy", "ppt_Apr.wy", "ppt_May.wy", "ppt_Jun.wy",
+                  "ppt_Jul.wy", "ppt_Aug.wy", "ppt_Sep.wy", "ppt_Oct.wy",
+                  "ppt_Nov.wy", "ppt_Dec.wy" ,"tav_Jan.wy" ,"tav_Feb.wy",
+                  "tav_Mar.wy" ,"tav_Apr.wy", "tav_May.wy", "tav_Jun.wy",
+                  "tav_Jul.wy", "tav_Aug.wy", "tav_Sep.wy", "tav_Oct.wy",
+                  "tav_Nov.wy" ,"tav_Dec.wy", "run_Jan.wy" , "run_Feb.wy",
+                  "run_Mar.wy",  "run_Apr.wy" ,   "run_May.wy" , "run_Jun.wy" ,
+                  "run_Jul.wy",  "run_Aug.wy" , "run_Sep.wy",  "run_Oct.wy",  "run_Nov.wy",  "run_Dec.wy")]  
+
+  allmet <- rbind(tmet, umet)
+  allmet$Year = allmet$Year
   
-  allmet <- rbind(tmet, testmet)
-  
-  years <- unique(allmet$WaYr)
+  years <- unique(allmet$Year)
   
   
   yearslist <- list()
@@ -220,11 +213,11 @@ for(s in 1:length(sites)){
     
     #if(year < 2021){
     
-    df.cur = allmet[which(allmet$WaYr == year),]
+    df.cur = allmet[which(allmet$Year == year),]
     
     com <- unique(allmet$COMID)
     cfil <- allmet
-    df.next <- cfil[which(cfil$WaYr == (year+1)),]
+    df.next <- cfil[which(cfil$Year == (year))+1,]
     
     df.cur$ppt_Oct.nwy <- unique(df.next$ppt_Oct.wy)
     df.cur$tav_Oct.nwy <- unique(df.next$tav_Oct.wy)
@@ -232,12 +225,6 @@ for(s in 1:length(sites)){
     df.cur$tav_Nov.nwy <- unique(df.next$tav_Nov.wy)
     df.cur$ppt_Dec.nwy <- unique(df.next$ppt_Dec.wy)
     df.cur$tav_Dec.nwy <- unique(df.next$tav_Dec.wy)
-    df.cur$ppt_Jan.nwy <- unique(df.next$ppt_Jan.wy)
-    df.cur$tav_Jan.nwy <- unique(df.next$tav_Jan.wy)
-    df.cur$ppt_Feb.nwy <- unique(df.next$ppt_Feb.wy)
-    df.cur$tav_Feb.nwy <- unique(df.next$tav_Feb.wy)
-    df.cur$ppt_Mar.nwy <- unique(df.next$ppt_Mar.wy)
-    df.cur$tav_Mar.nwy <- unique(df.next$tav_Mar.wy)
     
     #df.prev <- cfil[which(cfil$WaYr ==(year-1)),]
     #df.cur$ppt_ann.pwy
@@ -250,7 +237,7 @@ for(s in 1:length(sites)){
   
   library(data.table)
   wyclim <- rbindlist(yearslist)
-  
+
   ## Create sum variables
   # PPT
   
@@ -311,30 +298,20 @@ for(s in 1:length(sites)){
   
   new <- merge(wyclim,vars)
   
-  
+  new$ID <- paste0(site)
   write.csv(new, paste0("D:\\CA_NHDPreds_1950_2023\\",comid,".csv"),row.names=F)
   
   #}, error=function(e){cat("ERROR :",conditionMessage(e), "\n")})
-  
+  }
   rm(totalveg,totalwet,gdetotal,met,final,new,comid,gdetotal,site,veg,wet,wyclim,maxawc,maxpor,meanawc,meanpor,minawc,minpor,totalveg,vars,umet,testmet,prevmet,
      df.awc,df.crop,nd.crop,basin,awc.crop,allmet,nldi_nwis,s,y,years,year)
   
 }
 
 
-
-###########################################################################
-# 3. Merge files together and add streamflow metrics ----------------------
-###########################################################################
-
-
-
-# Merge all datasets together!!
-# updated met file with next water year p/t with all FF metrics and new low flow metrics
-
 setwd("D:\\CA_NHDPreds_1950_2023")
 file_list <- list.files("D:\\CA_NHDPreds_1950_2023")
 
 myMergedData <-   do.call(rbind, lapply( file_list, read.csv))
-#write.csv(myMergedData,"C:\\Work\\Data\\Functional Flows\\Met files\\Met_Master_Vars_Altered_2022.csv",row.names=F)
+write.csv(myMergedData,"C:\\Work\\Data\\Functional Flows\\Met files\\Met_Master_Vars_Altered_2023.csv",row.names=F)
 
