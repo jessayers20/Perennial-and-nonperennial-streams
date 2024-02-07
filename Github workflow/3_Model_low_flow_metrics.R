@@ -3,7 +3,7 @@
 #####                                                           #####
 ######################################################################
 
-# Reference gages to model low flow metrics using random forests
+# Reference gages only model low flow metrics using random forests
 # minimum 7-day moving average and timing
 # zero flow days is not predicted well enough to include in CEFF
 
@@ -22,8 +22,12 @@ library(ggplot2); library(tidyverse); library(VSURF); library(varSelRF); library
 drymets <- c("DS_Mag_90","DS_Mag_50","Min-7", "Min-7_Start","DS_Dur_WS","DS_Tim")
 timing <- c("Min_7_Date","Zero-Flow","Zero_Date","DS_Tim","DS_Dur_WS")
 
+master <- read.csv("C:\\Work\\Data\\Functional Flows\\Met files\\Met_altered_analysis_1_2024.csv",header=T)
+
+
 # file for predictors
-met <- read.csv("C:\\Work\\Data\\Functional Flows\\Met files\\Met_altered_analysis_12_2023.csv",header=T)
+#met <- read.csv("C:\\Work\\Data\\Functional Flows\\Met files\\Met_altered_analysis_12_2023.csv",header=T)
+#met2 = read.csv("C:\\Work\\Data\\Functional Flows\\Met files\\Met_Master_Vars_Altered_2023.csv",header=T)
 
 # Need to get reference sites from old MET file
 sites = unique(clus$site_no)

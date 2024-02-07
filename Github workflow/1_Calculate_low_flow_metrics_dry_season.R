@@ -24,6 +24,8 @@ sites2 <- unique(ldply(files,function(x) strsplit(x,"_")[[1]][1])$V1)
 all.eff <- read.csv("C:/Work/Data/Functional Flows/CA_Reference_Screen_December_2023_WRR_20years.csv",header=T); head(all.eff)
 ffref <- unique(all.eff$ID)
 
+met1 <- read.csv("C:\\Work\\Data\\Functional Flows\\Met files\\met_dryseason_point1_5condays_15percentofyears_reference.csv")
+
 
 altered <- read.csv("C:\\Work\\Data\\USGS gages\\California Discharge\\CA_altered_1980_25years_2.csv",header = T)
 altered <- altered[which(altered$Max_1980 >= 2020),]
@@ -197,7 +199,27 @@ for(s in 1:length(sites2)){
 
 # Calculate SF Class
 # need to do separately for reference and non-reference periods
-sites = sites2
+#current netword with comids
+altered <- read.csv("C:\\Work\\Data\\USGS gages\\California Discharge\\CA_altered_1980_years.csv",header = T)
+curnet <- unique(altered$ID)
+
+curref <- altered[which(altered$Ref_status == "Ref"),]
+
+# file for predictors
+tmet <- read.csv("C:\\Work\\Data\\Functional Flows\\Met files\\met_dryseason_point1_5condays_15percentofyears_reference.csv",header=T)
+tmet = tmet[which(tmet$Stat == "Streamclass_annual"),]
+
+# remove tmet observations that have current reference gage data (1980-2015)
+tmet2 <- tmet[which(tmet$ID %in% curref$ID),]
+tmet2 <- tmet2[-which(tmet2$Year >= 1980),]
+
+tmet1 <- tmet[-which(tmet$ID %in% curref$ID),]
+tmet <- rbind(tmet1,tmet2)
+
+
+all.eff <- read.csv("C:\\Work\\Data\\Functional Flows\\CA_USGS_Gage_Reference_Screen_December_2023_WRR.csv",header=T)
+tmet = tmet[which(tmet$ID %in% all.eff$ID),]
+length(unique(tmet$ID))
 ref.list <- list()
 
 #data frame to save values
@@ -208,14 +230,11 @@ for(s in 1:length(sites)){
   # site =11180960
   #s=1
   site = sites[s]
-  temp1=read.csv(paste0("C:\\Work\\Data\\Altered Low Flow Metrics Dry Season Consecutive\\",site,"_Annual_low_flow.csv"),header=T)
+  temp1=read.csv(paste0("C:\\Work\\Data\\Low Flow Metrics Dry Season Consecutive\\",site,"_Annual_low_flow.csv"),header=T)
   temp1$site = paste0(site)
   
   #get ref years
   ref.info = all.eff[which(all.eff$ID == site),]
-  
-  maxyear = ref.info$Max_year
-  minyear = ref.info$Min_year
   
   # if reference gage is in the modern, altered anlaysis
   if(site %in% current){maxyear = 1980}
@@ -224,7 +243,6 @@ for(s in 1:length(sites)){
   
   temp1 = temp1[,c(1:6,25)]
   
-  if(nrow(temp1)>19){
   # Reference period means 
   amean <- mean(temp1$Zero_Flow_Days)
   amedian <- median(temp1$Zero_Flow_Days)
@@ -253,7 +271,6 @@ for(s in 1:length(sites)){
   
   ref.list[[s]] <- temp1
   
-  }
   rm(occur,occur5,percent5,percent,amean,amedian,temp1,site,s)
 }
 

@@ -23,39 +23,45 @@ library(ggplot2); library(tidyverse); library(VSURF); library(varSelRF); library
 timing <- c("Min_7_Date","Zero-Flow","Zero_Date","DS_Tim","DS_Dur_WS","Streamclass_annual")
 
 # file for predictors
-met <- read.csv("C:\\Work\\Data\\Functional Flows\\Met files\\Met_altered_analysis_12_2023.csv",header=T)
+met <- read.csv("C:\\Work\\Data\\Functional Flows\\Met files\\Met_altered_analysis_1_2024.csv",header=T)
 
 # To create model, need to get reference sites from original MET file
 
-refmet <- read.csv("C:\\Work\\Data\\Functional Flows\\Met files\\met_dryseason_point1_5condays_15percentofyears_reference.csv",header=T)
-refs = refs[which(refs$Stat == "Streamclass_annual"),]
-refsites=unique(refs$ID)
-refs = unique(refs[,c("COMID","ID")])
+#current netword with comids
+altered <- read.csv("C:\\Work\\Data\\USGS gages\\California Discharge\\CA_altered_1980_years.csv",header = T)
+curnet <- unique(altered$ID)
 
-# For altered analysis
-altered <- read.csv("C:\\Work\\Data\\USGS gages\\California Discharge\\CA_altered.csv",header = T)
-altsites = unique(altered$ID)
-altered = altered[,c("COMID","ID")]
+curref <- altered[which(altered$Ref_status == "Ref"),]
+
+# file for predictors
+tmet <- read.csv("C:\\Work\\Data\\Functional Flows\\Met files\\met_dryseason_point1_5condays_15percentofyears_reference.csv",header=T)
+tmet = tmet[which(tmet$Stat == "Streamclass_annual"),]
+
+# remove tmet observations that have current reference gage data (1980-2015)
+tmet2 <- tmet[which(tmet$ID %in% curref$ID),]
+tmet2 <- tmet2[-which(tmet2$Year >= 1980),]
+
+tmet1 <- tmet[-which(tmet$ID %in% curref$ID),]
+tmet <- rbind(tmet1,tmet2)
 
 
-idcom <- rbind(altered,refs)
+all.eff <- read.csv("C:\\Work\\Data\\Functional Flows\\CA_USGS_Gage_Reference_Screen_December_2023_WRR.csv",header=T)
+tmet = tmet[which(tmet$ID %in% all.eff$ID),]
+length(unique(tmet$ID))
 
-# Metrics to predict
-drymets <- unique(met$Stat)
 
 # loop through all functional flows here or just select which metrics using drymets
-for(m in 1:length(drymets)){
+#for(m in 1:length(drymets)){
 #
-m=1
-curmet <- drymets[m]
 
+curmet="Streamclass_annual"
 dir.create(paste0("C:\\Work\\CEFF Metrics and Models\\Results\\Model Performance\\Stream Classification\\WRR Update\\" ,curmet,""))
 dir.create(paste0("C:\\Work\\CEFF Metrics and Models\\Results\\Variable Selection\\Stream Classification\\WRR Update\\",curmet,""))
 
 
-tmet<-refmet[which(refmet$Stat==curmet),]
+tmet<-tmet[which(tmet$Stat==curmet),]
 
-cor.results <- matrix(NA,nrow=length(unique(tmet$ID)),7)
+cor.results <- matrix(NA,nrow=length(unique(tmet$ID)),8)
 
 
 
@@ -74,9 +80,6 @@ new <- tmet[,c("ID","Year","Value", "DRAIN_SQKM",
                    "tav_Oct.wy" , "tav_Nov.wy" , "tav_Dec.wy",
                    "tav_Oct.nwy" , "tav_Nov.nwy" , "tav_Dec.nwy" , "tav_Jan.wy", "tav_Feb.wy","tav_Mar.wy" ,"tav_Apr.wy",
                    "tav_May.wy","tav_Jun.wy" ,"tav_Jul.wy" , "tav_Aug.wy","tav_Sep.wy",
-                   
-                   #"run_ann.wy","run_fall.wy","run_wint.wy",  "run_sprg.wy" , "run_summ.wy",
-                   "run_sum1" , "run_sum2",   "run_sum3", "run_sum4" ,     
                    
                    "tav_sum1", "tav_sum2" , "tav_sum3",  "tav_sum4", 
                    "tav_sprg.wy", "tav_fall.wy", "tav_wint.wy", 
@@ -112,36 +115,28 @@ new <- tmet[,c("ID","Year","Value", "DRAIN_SQKM",
 
 
 registerDoParallel(cores=4)
+sites = unique(tmet$ID)
 
 for(s in 1:length(sites)){
   site = sites[s]
   
   clist<-sites[-s]
   train<-new[new$ID %in% clist,]
-  test<-met[met$ID %in% sites[s],]
-  test<-test[which(test$Stat == curmet),]
-  
+  test<-new[new$ID %in% sites[s],]
+
   # x var needs to be altered for timing metrics (not scaled by DA)
   
-  if(curmet %in% timing){
-    train$Value <- train$Value
-    test$Value <- test$Value
-  } else{
-    # add one bc often have zero flow vals
-    train$Value <- (train$Value+1)/train$DRAIN_SQKM
-    test$Value <- (test$Value+1)/test$DRAIN_SQKM
-  }
+ 
   
-  if(curmet=="Streamclass_annual"){
     train$Value <-as.factor(train$Value)
     test$Value <-as.factor(test$Value)
-  }
+ 
   
   
   library(randomForest)
   
   
-  rf.modcur <- randomForest(train$Value ~., train[,!(colnames(train) %in% c("ID","Year","Value","DRAIN_SQKM"))], ntrees=300)
+  rf.modcur <- randomForest(train$Value ~., train[,!(colnames(train) %in% c("ID","Year","Value","DRAIN_SQKM"))], ntrees=2300, mtry=10)
   
   ### Save variable importance
   varimp<-as.data.frame(rf.modcur$importance)
@@ -157,7 +152,7 @@ for(s in 1:length(sites)){
     
     ag_data <- data.frame(test$Value, predValid)
     
-    table_agree <- confusionMatrix(test$Value,predValid,mode='everything')
+    table_agree <- confusionMatrix(as.factor(test$Value),as.factor(predValid),mode='everything')
     rf.cor <- table_agree$overall[[1]]
 
     x = 1:length(test$Value)
@@ -165,37 +160,58 @@ for(s in 1:length(sites)){
     R <- rf.cor
     print(R)
     
-    FP <- table_agree$table[[2]]/nrow(test) # false negative
-    FI <- table_agree$table[[3]]/nrow(test)
+    FI <- table_agree$table[[2]]/nrow(test) # false negative
+    FP <- table_agree$table[[3]]/nrow(test)
     TI <- table_agree$table[[1]]/nrow(test[which(test$Value == "Intermittent"),])
     TP <- table_agree$table[[4]]/nrow(test[which(test$Value == "Perennial"),])
     
-    val<-data.frame(ID=test$ID,Year=test$Year,Obs=test$Value,AREA=test$DRAIN_SQKM,#WY=test$Year
-                    p50 = predValid, cor = R, F_perennial = FP, F_intermittent=FI,T_intermittent=TI, T_perennial=TP) # ,bayescor,bf.mod$yhat.test.mean)
+    TrueClass <- nrow(test[which(test$Value=="Intermittent"),])/nrow(test)
+    PredClass <- nrow(ag_data[which(ag_data$predValid=="Intermittent"),])/nrow(test)
     
-  #}
-  #else{
-  ### Predict to validation sites and save median, 10th, 25th, 75th, & 90th percentiles
-  #preds <- predict(rf.modcur, test, type="response",predict.all=T)
-  #predp50<-apply(preds$individual,1,median)
-  #predp10<-apply(preds$individual,1,function(x) quantile(x,probs=0.1))
-  #predp25<-apply(preds$individual,1,function(x) quantile(x,probs=0.25))
-  #predp75<-apply(preds$individual,1,function(x) quantile(x,probs=0.75))
-  #predp90<-apply(preds$individual,1,function(x) quantile(x,probs=0.9))
-  #rf.cor <- cor(predp50,test$Value)^2
-  #}
-  
-  
-  #val<-data.frame(ID=test$ID,WY=test$Year,Obs=test$Value,AREA=test$DRAIN_SQKM,
-   #               p50=predp50,p10=predp10,p25=predp25,p75=predp75,p90=predp90,
-  #                rf.cor ) # ,bayescor,bf.mod$yhat.test.mean)
-  
+    val<-data.frame(ID=test$ID,Year=test$Year,Obs=test$Value,AREA=test$DRAIN_SQKM,#WY=test$Year
+                    p50 = predValid) # ,bayescor,bf.mod$yhat.test.mean)
+    
+    cor.results[s,1] <- paste0(site)
+    cor.results[s,2] <-  R
+    cor.results[s,3] <- FP
+    cor.results[s,4] = FI
+    cor.results[s,5] = TI
+    cor.results[s,6] = TP
+    cor.results[s,7] = TrueClass
+    cor.results[s,8] = PredClass
   
   write.csv(val,paste0("C:\\Work\\CEFF Metrics and Models\\Results\\Model Performance\\Stream Classification\\WRR Update\\",curmet,"\\",unique(test$ID),"_valpreds.csv"),row.names=FALSE)
   
   rm(predValid,val)
 }
 
+c.test <- data.frame(apply(cor.results, 2, function(x) as.numeric(x)))
+colnames(c.test) <- c("ID","Accuracy","False_Perennial","False_Nonperennial","True_Nonperennial","True_Perennial","Overall_Ob_Nonperennial","Overall_Pr_Nonperennial")
+
+c.test$Ob_Class <- ifelse(c.test$Overall_Ob_Nonperennial>= 0.15, "Nonperennial","Perennial")
+c.test$Pr_Class <- ifelse(c.test$Overall_Pr_Nonperennial>= 0.15, "Nonperennial","Perennial")
+c.test$Match <- c.test$Pr_Class == c.test$Ob_Class
+
+# Overall stats
+wrong = c.test[which(c.test$Match == "FALSE"),]
+mean(c.test$False_Nonperennial)
+mean(c.test$False_Perennial)
+
+# Perennial stats
+perennial = c.test[which(c.test$Ob_Class == "Perennial"),]
+mean(perennial$Accuracy)
+mean(perennial$False_Nonperennial)
+mean(perennial$False_Perennial)
+pwrong = perennial[which(perennial$Match == "FALSE"),]
+
+# Nonperennial stats
+nonperennial = c.test[which(c.test$Ob_Class == "Nonperennial"),]
+mean(nonperennial$Accuracy)
+mean(nonperennial$False_Perennial)
+mean(nonperennial$False_Nonperennial)
+nwrong = nonperennial[which(nonperennial$Match == "FALSE"),]
+
+write.csv(c.test,"C:\\Work\\CEFF Metrics and Models\\Results\\Model Performance\\Stream Classification\\WRR Update\\LOOCV_Classification_Accuracy_FP_FN.csv",row.names = F)
 
 # Bind Everything together
 
@@ -206,5 +222,7 @@ file_list <- list.files("C:\\Work\\CEFF Metrics and Models\\Results\\Model Perfo
 
 myMergedData <-   do.call(rbind, lapply( file_list, read.csv))
 head(myMergedData)
+
+myMergedData = myMergedData[which(myMergedData$ID %in% sites),]
 
 #write.csv(myMergedData, "C:\\Work\\CEFF Metrics and Models\\Results\\Model Performance\\Stream Classification\\Overall_Altered_Annual_Obs_Prs_WRR_update.csv")
